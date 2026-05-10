@@ -1,7 +1,7 @@
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain.agents import create_tool_calling_agent, AgentExecutor
 from app.services.llm_factory import LLMFactory
-from app.agents.tools import get_tools
+from app.services.mcp_client import get_mcp_tools
 
 def get_researcher_agent_executor(query: str):
     """
@@ -9,7 +9,7 @@ def get_researcher_agent_executor(query: str):
     It binds the tools and system prompt to the selected LLM.
     """
     llm = LLMFactory.get_model(query, purpose="research")
-    tools = get_tools()
+    tools = get_mcp_tools()
     
     prompt = ChatPromptTemplate.from_messages([
         ("system", """You are a Market Research Assistant. 

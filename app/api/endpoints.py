@@ -34,6 +34,26 @@ async def ask_question(request: AskRequest, cache: RedisCache = Depends(get_cach
         logger.error(f"Error processing query: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error during processing.")
 
+from app.api.models import AskRequest, AskResponse, FeedbackRequest, EvaluationRequest, EvaluationResponse
+from app.services.evaluator_judge import evaluator_judge
+
+@router.post("/evaluate", response_model=EvaluationResponse)
+async def evaluate_system(request: EvaluationRequest):
+    """
+    Run an automated evaluation over a batch of cases using LLM-as-a-judge.
+    """
+    logger.info(f"Running evaluation for {len(request.cases)} cases.")
+    
+    result = await evaluator_judge.evaluate_batch(request.cases)
+    
+    # Save score to metrics
+    metrics_tracker.record_evaluation(result["average_score"])
+    
+    return EvaluationResponse(
+        average_score=result["average_score"],
+        results=result["results"]
+    )
+
 @router.post("/feedback")
 async def submit_feedback(request: FeedbackRequest):
     """
