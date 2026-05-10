@@ -1,0 +1,149 @@
+# Alertmanager Configuration
+# Manages routing and notifications for alerts
+
+global:
+  resolve_timeout: 5m
+  slack_api_url: '{{ env "SLACK_WEBHOOK_URL" }}'
+
+# Template definitions
+templates:
+  - '/etc/alertmanager/alertmanager-templates.tmpl'
+
+# Alert routing tree
+route:
+  receiver: 'default'
+  group_by: ['alertname', 'cluster', 'service']
+  group_wait: 10s
+  group_interval: 10s
+  repeat_interval: 12h
+
+  routes:
+    # Panic alerts - send immediately to Slack
+    - match:
+        severity: page
+      receiver: 'slack-panic'
+      group_wait: 0s
+      repeat_interval: 1h
+      continue: true
+
+    # Critical alerts - send to Slack
+    - match:
+        severity: critical
+      receiver: 'slack-critical'
+      group_wait: 10s
+      repeat_interval: 4h
+      continue: true
+
+    # Warning alerts - send to Slack
+    - match:
+        severity: warning
+      receiver: 'slack-warning'
+      group_wait: 30s
+      repeat_interval: 24h
+      continue: true
+
+    # Quality issues - high priority
+    - match:
+        category: quality
+      receiver: 'slack-quality'
+      group_wait: 5s
+      repeat_interval: 2h
+
+    # Cost issues - notify
+    - match:
+        category: cost
+      receiver: 'slack-cost'
+      group_wait: 30s
+      repeat_interval: 6h
+
+    # Infrastructure issues
+    - match:
+        category: infrastructure
+      receiver: 'slack-infrastructure'
+      group_wait: 10s
+      repeat_interval: 4h
+
+    # Performance issues
+    - match:
+        category: performance
+      receiver: 'slack-default'
+      group_wait: 30s
+      repeat_interval: 6h
+
+# Receivers (notification destinations)
+receivers:
+  - name: 'default'
+    slack_configs:
+      - channel: '#alerts'
+        title: 'Alert: {{ .GroupLabels.alertname }}'
+        text: '{{ range .Alerts }}{{ .Annotations.description }}{{ end }}'
+
+  - name: 'slack-panic'
+    slack_configs:
+      - channel: '#panic-alerts'
+        title: '🚨 PANIC ALERT: {{ .GroupLabels.alertname }}'
+        text: '{{ range .Alerts }}{{ .Annotations.description }}{{ end }}'
+        send_resolved: true
+        color: '{{ if eq .Status "firing" }}danger{{ else }}good{{ end }}'
+
+  - name: 'slack-critical'
+    slack_configs:
+      - channel: '#critical-alerts'
+        title: '🔴 CRITICAL: {{ .GroupLabels.alertname }}'
+        text: '{{ range .Alerts }}{{ .Annotations.description }}{{ end }}'
+        send_resolved: true
+        color: '{{ if eq .Status "firing" }}danger{{ else }}good{{ end }}'
+
+  - name: 'slack-warning'
+    slack_configs:
+      - channel: '#warnings'
+        title: '⚠️ WARNING: {{ .GroupLabels.alertname }}'
+        text: '{{ range .Alerts }}{{ .Annotations.description }}{{ end }}'
+        send_resolved: false
+        color: 'warning'
+
+  - name: 'slack-quality'
+    slack_configs:
+      - channel: '#quality-monitoring'
+        title: '📊 Quality Alert: {{ .GroupLabels.alertname }}'
+        text: '{{ range .Alerts }}{{ .Annotations.description }}{{ end }}'
+        send_resolved: false
+        color: '{{ if eq .Status "firing" }}danger{{ else }}good{{ end }}'
+
+  - name: 'slack-cost'
+    slack_configs:
+      - channel: '#cost-alerts'
+        title: '💰 Cost Alert: {{ .GroupLabels.alertname }}'
+        text: '{{ range .Alerts }}{{ .Annotations.description }}{{ end }}'
+        send_resolved: true
+        color: 'warning'
+
+  - name: 'slack-infrastructure'
+    slack_configs:
+      - channel: '#infrastructure-alerts'
+        title: '🛠️ Infrastructure Alert: {{ .GroupLabels.alertname }}'
+        text: '{{ range .Alerts }}{{ .Annotations.description }}{{ end }}'
+        send_resolved: true
+        color: '{{ if eq .Status "firing" }}danger{{ else }}good{{ end }}'
+
+  - name: 'slack-default'
+    slack_configs:
+      - channel: '#alerts'
+        title: '{{ .GroupLabels.alertname }}'
+        text: '{{ range .Alerts }}{{ .Annotations.description }}{{ end }}'
+
+# Inhibition rules (to suppress alerts)
+inhibit_rules:
+  # Don't alert on low quality if already alerting on panic
+  - source_match:
+      severity: 'page'
+    target_match:
+      category: 'quality'
+    equal: ['alertname']
+
+  # Don't alert on warning if critical already firing
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'warning'
+    equal: ['alertname']

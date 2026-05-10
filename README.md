@@ -104,14 +104,75 @@ proyecto_LLM/
 
 ---
 
+## � Observability Stack (NEW!)
+
+This project includes a **production-grade monitoring and alerting system** built with:
+
+### Components
+
+| Component | Purpose | URL |
+|-----------|---------|-----|
+| **Prometheus** | Metrics collection & alert rules | http://localhost:9090 |
+| **Grafana** | Dashboards & visualization | http://localhost:3000 |
+| **Loki** | Centralized log aggregation | http://localhost:3100 |
+| **Alertmanager** | Alert routing & notifications | http://localhost:9093 |
+| **Promtail** | Log shipper (Docker containers) | N/A |
+
+### Exposed Metrics
+
+**Performance:**
+- Agent execution latency (p50, p99) by role
+- LLM API call duration by model
+- Request latency by endpoint
+
+**Quality:**
+- `response_quality_score`: 0-100 quality rating (LLM-as-judge)
+- Quality sample distribution: excellent/good/fair/poor
+- Semantic drift detection over time
+
+**Cost:**
+- `api_cost_total_usd`: Cumulative cost
+- `api_cost_per_hour_usd`: Hourly cost estimate
+- Cost breakdown by model
+
+**Cache:**
+- `cache_hit_ratio`: Hit/miss ratio (0-1)
+- Cache hits/misses counters
+
+**Business:**
+- Query distribution: RAG vs Web Search
+- Request status codes: 2xx/4xx/5xx
+- Error rates by type and agent
+
+### Automated Alerts
+
+| Alert | Threshold | Action |
+|-------|-----------|--------|
+| **Response Quality Degraded** | >5% low-quality (score < 60) for 5min | Warning in Slack |
+| **PANIC: Critical Quality** | >10% poor quality (score < 40) for 5min | Immediate page/alert |
+| **Budget Exceeded** | Cost > $2/hour for 10min | Warning in Slack |
+| **Cache Degradation** | Hit ratio < 40% for 15min | Warning in Slack |
+| **High Latency** | p99 > 30s | Warning in Slack |
+| **API Errors** | >10% error rate | Critical alert |
+
+### Dashboards
+
+1. **Agent Flight Deck**: Agent latency, query distribution, quality gauge
+2. **Cost Dashboard**: Hourly/daily costs, projections, model breakdown
+3. **Semantic Drift Monitor**: Quality score trends over 7 days
+4. **Cache & Request Status**: Cache ratio, request status distribution
+
+---
+
 ## 🚀 Quick Start
 
 ### Prerequisites
 
-- Docker & Docker Compose (recommended)
-- Or: Python 3.11+, PostgreSQL, Redis
+- Docker & Docker Compose (required for full stack)
+- Or: Python 3.11+, PostgreSQL, Redis, Prometheus, Grafana
 - OpenAI API Key
 - (Optional) Tavily API Key for web search
+- (Optional) Slack webhook for alert notifications
 
 ### Installation with Docker (Recommended)
 
@@ -124,6 +185,7 @@ proyecto_LLM/
    ```env
    OPENAI_API_KEY=sk-your-openai-key-here
    TAVILY_API_KEY=tvly-your-tavily-key-here  # Optional
+   SLACK_WEBHOOK_URL=https://hooks.slack.com/services/...  # Optional
    ENVIRONMENT=development
    ```
 
@@ -134,19 +196,59 @@ proyecto_LLM/
 
    **Services started:**
    - 🌐 FastAPI: `http://localhost:8000`
-   - 🗂️ PostgreSQL: `localhost:5432` (pgvector enabled)
+   - 📊 Prometheus: `http://localhost:9090`
+   - 📈 Grafana: `http://localhost:3000` (admin/admin)
+   - 📝 Loki: `http://localhost:3100`
+   - 🗂️ PostgreSQL: `localhost:5432`
    - 💾 Redis: `localhost:6379`
+   - 🔔 Alertmanager: `http://localhost:9093`
 
 4. **Seed vector database (optional):**
    ```bash
    docker-compose exec api python scripts/seed_db.py
    ```
 
-5. **Access API documentation:**
-   - Swagger UI: `http://localhost:8000/docs`
-   - ReDoc: `http://localhost:8000/redoc`
+5. **Access Dashboards:**
+   - **API Docs**: http://localhost:8000/docs
+   - **Prometheus**: http://localhost:9090
+   - **Grafana**: http://localhost:3000 (Default: admin/admin)
+   - **Loki**: http://localhost:3100
+
+### Testing the Observability Stack
+
+**Run tests to verify everything is working:**
+```bash
+docker-compose exec api python scripts/test_observability.py
+```
+
+**Expected output:**
+```
+✓ Basic Query
+✓ Metrics Endpoint  
+✓ Load Generation
+✓ Cache Performance
+```
+
+**Simulate alerts (for testing):**
+```bash
+# Trigger quality degradation alert
+docker-compose exec api python scripts/simulate_alerts.py --scenario quality --severity high
+
+# Trigger cost spike alert
+docker-compose exec api python scripts/simulate_alerts.py --scenario cost
+
+# Trigger cache degradation alert
+docker-compose exec api python scripts/simulate_alerts.py --scenario cache
+```
+
+**View metrics in action:**
+```bash
+# Watch metrics being exposed
+watch -n 1 'curl -s http://localhost:8000/api/v1/metrics | head -20'
+```
 
 ### Local Installation (Without Docker)
+
 
 1. **Create virtual environment:**
    ```bash
@@ -384,6 +486,38 @@ Custom `TokenCostCallbackHandler` captures:
 - Check if using gpt-4o or gpt-4o-mini (logs show model used)
 - Verify internet connection for web search
 - Check PostgreSQL performance: `docker-compose logs postgres`
+
+### Observability Stack Issues
+
+**Prometheus not scraping metrics:**
+- Verify API metrics endpoint: `curl http://localhost:8000/api/v1/metrics`
+- Check Prometheus targets: http://localhost:9090/targets
+- Verify network connection: `docker network ls`
+- Restart Prometheus: `docker-compose restart prometheus`
+
+**Grafana dashboards not showing data:**
+- Wait 30-60 seconds for Prometheus to populate data
+- Verify data source: http://localhost:3000/datasources
+- Check dashboard timezone settings
+- Manually refresh Prometheus: http://localhost:9090/graph
+
+**Loki not receiving logs:**
+- Check Promtail status: `docker-compose logs promtail`
+- Verify Promtail config: `config/promtail-config.yml`
+- Test Loki directly: http://localhost:3100/ready
+- Restart Loki: `docker-compose restart loki`
+
+**Alerts not triggering:**
+- Verify alertmanager is running: `docker ps | grep alertmanager`
+- Check alert rules: http://localhost:9090/alerts
+- Verify Slack webhook in `.env`: `SLACK_WEBHOOK_URL=...`
+- Test webhook: `curl -X POST $SLACK_WEBHOOK_URL`
+
+**Metrics not appearing:**
+- Check application logs: `docker-compose logs api | grep metric`
+- Verify middleware is added in `app/main.py`
+- Wait for first query to generate metrics
+- Run test script: `docker-compose exec api python scripts/test_observability.py`
 
 ---
 

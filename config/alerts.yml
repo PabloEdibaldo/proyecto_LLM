@@ -1,0 +1,270 @@
+# Prometheus Alert Rules
+# These rules define conditions for triggering alerts
+
+groups:
+  - name: market_research_api
+    interval: 1m
+    rules:
+
+      # ========================================
+      # QUALITY ALERTS
+      # ========================================
+
+      - alert: ResponseQualityDegraded
+        expr: |
+          (count(response_quality_samples_total{quality_level=~"fair|poor"}) by (job)
+           / 
+           count(response_quality_samples_total) by (job)) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+          category: quality
+        annotations:
+          summary: "Response quality degraded: >5% low quality responses"
+          description: |
+            More than 5% of responses are getting quality scores below 60 in the last 5 minutes.
+            Current ratio: {{ $value | humanizePercentage }}
+            
+            **Troubleshooting:**
+            - Check OpenAI API status (may be having issues)
+            - Verify RAG retrieval quality (vector DB may have bad embeddings)
+            - Review recent code changes that might affect prompt quality
+            - Check if using cheaper model (gpt-4o-mini) when gpt-4o was intended
+          runbook_url: "https://wiki.example.com/runbooks/quality-degraded"
+
+      - alert: PanicButtonQualityAlert
+        expr: |
+          (count(response_quality_samples_total{quality_level="poor"}) by (job)
+           / 
+           count(response_quality_samples_total) by (job)) > 0.1
+        for: 5m
+        labels:
+          severity: page
+          category: quality
+        annotations:
+          summary: "PANIC: Critical quality issue - >10% of responses are poor"
+          description: |
+            CRITICAL: More than 10% of responses are getting poor quality scores (<40).
+            This indicates a serious system degradation.
+            
+            Current ratio: {{ $value | humanizePercentage }}
+            
+            **Immediate Actions:**
+            1. Check OpenAI API status dashboard
+            2. Review recent deployments or configuration changes
+            3. Monitor ongoing: `curl http://localhost:3000/d/quality-monitor`
+            4. May need to rollback if caused by recent change
+            
+            **Escalation:**
+            - On-call engineer should be notified immediately
+            - Consider degrading to cheaper model while investigating
+          runbook_url: "https://wiki.example.com/runbooks/panic-quality"
+
+      # ========================================
+      # COST ALERTS
+      # ========================================
+
+      - alert: HourlyApiCostBudgetExceeded
+        expr: api_cost_per_hour_usd > 2.0
+        for: 10m
+        labels:
+          severity: warning
+          category: cost
+        annotations:
+          summary: "API cost budget exceeded: ${{ $value | humanize }}/hour"
+          description: |
+            Current estimated hourly cost is ${{ $value | humanize }}, exceeding the $2.00 budget.
+            
+            **Possible Causes:**
+            - High traffic spike
+            - Using gpt-4o instead of gpt-4o-mini due to long queries
+            - Inefficient RAG causing more web searches
+            
+            **Actions:**
+            - Review recent traffic patterns
+            - Consider rate limiting or query throttling
+            - Optimize query routing to prefer RAG over web search
+          dashboard_url: "https://grafana.example.com/d/cost-dashboard"
+
+      - alert: DailyCostProjectionExceeded
+        expr: (api_cost_total_usd * 24) > 50.0
+        for: 30m
+        labels:
+          severity: critical
+          category: cost
+        annotations:
+          summary: "Daily cost projection: ${{ $value | humanize }} (budgeted: $50)"
+          description: |
+            Current spending trajectory suggests daily cost of ${{ $value | humanize }}.
+            This exceeds the daily budget of $50.00.
+            
+            **Actions:**
+            1. Immediately review traffic and query patterns
+            2. Consider implementing request rate limiting
+            3. Switch to RAG-only mode (disable web search)
+            4. Contact OpenAI support if using trial credits
+
+      # ========================================
+      # CACHE ALERTS
+      # ========================================
+
+      - alert: CacheDegradation
+        expr: cache_hit_ratio < 0.4
+        for: 15m
+        labels:
+          severity: warning
+          category: infrastructure
+        annotations:
+          summary: "Cache hit ratio degraded to {{ $value | humanizePercentage }}"
+          description: |
+            Cache hit ratio has dropped below 40% for the past 15 minutes.
+            This indicates potential Redis instability or sudden query pattern changes.
+            
+            Current ratio: {{ $value | humanizePercentage }}
+            
+            **Troubleshooting:**
+            - Check Redis memory usage and performance
+            - Monitor Redis connection errors: `docker-compose logs redis`
+            - Check if queries are becoming more diverse (less cache hits expected)
+            - Verify cache TTL settings (currently 1 hour)
+            
+            **Commands:**
+            - Check Redis: `redis-cli INFO stats`
+            - Restart Redis: `docker-compose restart redis`
+
+      - alert: CacheDown
+        expr: cache_hit_ratio == 0
+        for: 5m
+        labels:
+          severity: critical
+          category: infrastructure
+        annotations:
+          summary: "Cache completely down - 0% hit ratio"
+          description: |
+            Cache is completely unavailable (0% hit ratio).
+            All queries are bypassing the cache.
+            
+            **Immediate Actions:**
+            1. Restart Redis: `docker-compose restart redis`
+            2. Check Redis logs: `docker-compose logs redis --tail 50`
+            3. Verify Redis container is running: `docker ps | grep redis`
+            4. Check disk space on Redis volume
+            
+            **Impact:**
+            - Performance will degrade significantly
+            - API costs will increase due to cache misses
+            - Response times will be slower
+
+      # ========================================
+      # PERFORMANCE ALERTS
+      # ========================================
+
+      - alert: AgentP99LatencyHigh
+        expr: histogram_quantile(0.99, agent_execution_duration_seconds) > 30
+        for: 5m
+        labels:
+          severity: warning
+          category: performance
+        annotations:
+          summary: "Agent p99 latency is {{ $value | humanizeDuration }}"
+          description: |
+            99th percentile latency for agent execution is {{ $value | humanizeDuration }}.
+            
+            Affected agent: {{ $labels.agent_role }}
+            
+            **Troubleshooting:**
+            - Check LLM API latency (may have issues)
+            - Monitor network connectivity
+            - Review database query performance (for researcher agent)
+            - Check if using gpt-4 model (slower than gpt-4o-mini)
+
+      - alert: LLMApiCallTimeout
+        expr: |
+          rate(errors_total{error_type=~"timeout|llm_error"} [5m]) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          category: performance
+        annotations:
+          summary: "High LLM API error rate ({{ $value | humanizePercentage }})"
+          description: |
+            More than 5% of LLM calls are timing out or failing.
+            
+            **Actions:**
+            - Check OpenAI API status
+            - Review error logs
+            - Consider increasing timeout thresholds
+
+      # ========================================
+      # ERROR ALERTS
+      # ========================================
+
+      - alert: HighErrorRate
+        expr: |
+          rate(errors_total[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: critical
+          category: reliability
+        annotations:
+          summary: "High error rate: {{ $value | humanizePercentage }}"
+          description: |
+            Error rate has exceeded 10% in the last 5 minutes.
+            
+            Top error type: {{ $labels.error_type }}
+            Affected agent: {{ $labels.agent_role }}
+            
+            **Immediate Actions:**
+            1. Check application logs
+            2. Review recent deployments
+            3. Monitor system resources (CPU, memory, disk)
+
+      # ========================================
+      # INFRASTRUCTURE ALERTS
+      # ========================================
+
+      - alert: PrometheusScrapeFailed
+        expr: up{job="fastapi_app"} == 0
+        for: 5m
+        labels:
+          severity: critical
+          category: infrastructure
+        annotations:
+          summary: "Prometheus cannot scrape FastAPI metrics"
+          description: |
+            Prometheus has been unable to scrape metrics from the FastAPI application
+            for the last 5 minutes. This could indicate:
+            - FastAPI application is down
+            - Metrics endpoint is broken
+            - Network connectivity issue
+            
+            **Check:**
+            - Is API running? `docker-compose ps api`
+            - Can you reach metrics? `curl http://localhost:8000/api/v1/metrics`
+            - Check API logs: `docker-compose logs api --tail 50`
+
+  # ========================================
+  # RECORDING RULES (for performance)
+  # ========================================
+
+  - name: recording_rules
+    interval: 30s
+    rules:
+
+      - record: agent:latency:p50
+        expr: histogram_quantile(0.5, agent_execution_duration_seconds)
+
+      - record: agent:latency:p99
+        expr: histogram_quantile(0.99, agent_execution_duration_seconds)
+
+      - record: request:rate:5m
+        expr: rate(api_requests_total[5m])
+
+      - record: error:rate:5m
+        expr: rate(errors_total[5m])
+
+      - record: quality:poor:ratio
+        expr: |
+          count(response_quality_samples_total{quality_level="poor"})
+          /
+          count(response_quality_samples_total)

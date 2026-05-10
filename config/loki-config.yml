@@ -1,0 +1,108 @@
+# Loki Configuration
+# Centralized log aggregation system
+
+auth_enabled: false
+
+ingester:
+  chunk_idle_period: 3m
+  chunk_retain_period: 1m
+  max_chunk_age: 1h
+  chunk_size_target: 1048576
+  enforce_metric_name: false
+  lifecycler:
+    ring:
+      kvstore:
+        store: inmemory
+      replication_factor: 1
+
+limits_config:
+  enforce_metric_name: false
+  reject_old_samples: true
+  reject_old_samples_max_age: 168h
+  ingestion_rate_mb: 20
+  ingestion_burst_size_mb: 40
+  max_streams_per_user: 10000
+  max_entries_limit_per_minute: 100000
+
+schema_config:
+  configs:
+    - from: 2024-01-01
+      store: boltdb-shipper
+      object_store: filesystem
+      schema: v11
+      index:
+        prefix: index_
+        period: 24h
+
+server:
+  http_listen_port: 3100
+  http_server_read_timeout: 600s
+  http_server_write_timeout: 600s
+  grpc_server_max_recv_msg_size: 67108864
+  grpc_server_max_send_msg_size: 67108864
+
+storage_config:
+  boltdb_shipper:
+    active_index_directory: /loki/boltdb-shipper-active
+    cache_location: /loki/boltdb-shipper-cache
+    shared_store: filesystem
+  filesystem:
+    directory: /loki/chunks
+
+chunk_store_config:
+  max_look_back_period: 0s
+
+table_manager:
+  retention_deletes_enabled: false
+  retention_period: 0s
+
+# Loki can use label_names as well
+discovery:
+  consul:
+    enabled: false
+  dns:
+    enabled: false
+  docker:
+    enabled: false
+  ec2:
+    enabled: false
+  eureka:
+    enabled: false
+  file_sd:
+    enabled: false
+  gce:
+    enabled: false
+  hetzner:
+    enabled: false
+  http_sd:
+    enabled: false
+  kuma:
+    enabled: false
+  kubernetes:
+    enabled: false
+  marathon:
+    enabled: false
+  nerve:
+    enabled: false
+  serverset:
+    enabled: false
+  triton:
+    enabled: false
+  univer:
+    enabled: false
+  xds:
+    enabled: false
+  uyuni:
+    enabled: false
+  openstack:
+    enabled: false
+  digitalocean:
+    enabled: false
+  scaleway:
+    enabled: false
+  linode:
+    enabled: false
+  puppetdb:
+    enabled: false
+  nomad:
+    enabled: false
